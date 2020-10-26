@@ -121,12 +121,14 @@
 $CollectionName = "CollectionName"
 $FSProfileList = "server1.f.q.d.n", "server2.f.q.d.n"
 $ReportPath = "c:\temp"
+$StrPool = "VDIPool"
 
 #Get all SMB files opened and get all RD VHDX file paths
 $VHDXFilePaths = Invoke-Command -ComputerName $FSProfileList -ScriptBlock { 
     $SMBFiles = Get-SmbOpenFile 
     foreach ($SMBFile in $SMBFiles) {
-        if ($SMBFile.Path -match ".*VDIPool.*") { #                                                                 <<<<<<<---------- COLOCAR EXPRESSAO REGULAR PARA IDENTIFICAR VDIPool
+        $StrRegex = ".*" + $StrPool + ".*"
+        if ($SMBFile.Path -match $StrRegex) {
             New-Object -TypeName PSCustomObject -Property @{VHDXFilePath=$SMBFile.Path}
         }
     }
@@ -134,12 +136,12 @@ $VHDXFilePaths = Invoke-Command -ComputerName $FSProfileList -ScriptBlock {
 
 #Get SID from path and sAMAccountName from AD. Then verify sessions and close orphans
 $result = foreach ($VHDXFilePath in $VHDXFilePaths) {
-    $SID = $VHDXFilePath.Substring( 0 , 10 ) #                                                                 <<<<<<<---------- acertar substring begin,len para extrair exatamente o SID
-    $sAMAccountName = (Get-ADUser -Filter {sAMAccountName -eq $SID}).sAMAccountName #                              <<<<<<<---------- acertar o filtro para filtrar o usuario por SID
+    $SID = $VHDXFilePath.Substring( ($VHDXFilePath.length - 50) , 50 )
+    $sAMAccountName = (Get-ADUser -Filter {SID -eq $SID}).sAMAccountName
 
     #Verify any type of session
-    $Sessions = Get-RDUserSession -ConnectionBroker $ActiveBroker -CollectionName $CollectionName | Where-Object {$_.SessionState -eq 'STATE_DISCONNECTED' -AND $_.HostServer -match $server.Server} # <<<<<<<---------- acertar o filtro para filtrar o usuario em qualquer sessionstate
-    if ($Sessions) { #                                                                                             <<<<<<<---------- testar pra ver se esse if funciona
+    $Sessions = Get-RDUserSession -ConnectionBroker $ActiveBroker -CollectionName $CollectionName | Where-Object {$_.UserName -eq $sAMAccountName -AND $_.HostServer -match $server.Server}
+    if ($Sessions) {
         #Close SMB
         Invoke-Command -ComputerName $FSProfileList -ScriptBlock { 
             param($SID)
